@@ -359,6 +359,10 @@ export class MetadataService {
                 year = imdbSuggestionData.year;
               if (imdbSuggestionData.yearEnd && !yearEnd)
                 yearEnd = imdbSuggestionData.yearEnd;
+            } else {
+              logger.warn(
+                `Failed to fetch IMDb suggestion data for ${imdbId}: ${imdbSuggestionResult.status === 'rejected' ? imdbSuggestionResult.reason : 'no data'}`
+              );
             }
 
             const uniqueTitles = deduplicateTitles(titles);
