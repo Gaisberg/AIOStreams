@@ -108,7 +108,7 @@ export class EasynewsSearchAddon extends BaseDebridAddon<EasynewsSearchAddonConf
     const queries = this.buildQueries(parsedId, metadata, {
       addYear: parsedId.mediaType === 'movie',
       addSeasonEpisode: parsedId.mediaType === 'series',
-      titleLanguages: getTitleLanguagesForUrl(EASYNEWS_BASE),
+      titleLanguages: getTitleLanguagesForUrl(EASYNEWS_BASE, this.id),
     });
 
     if (queries.length === 0) {

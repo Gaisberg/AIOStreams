@@ -202,7 +202,7 @@ export class ProwlarrAddon extends BaseDebridAddon<ProwlarrAddonConfig> {
     }
 
     const queries = this.buildQueries(parsedId, metadata, {
-      titleLanguages: getTitleLanguagesForUrl(this.userData.url),
+      titleLanguages: getTitleLanguagesForUrl(this.userData.url, this.id),
     });
     if (queries.length === 0) {
       return [];

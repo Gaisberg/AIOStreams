@@ -168,7 +168,7 @@ export abstract class BaseNabAddon<
         )
           ? false
           : !queryParams.season && !queryParams.ep,
-        titleLanguages: getTitleLanguagesForUrl(this.userData.url),
+        titleLanguages: getTitleLanguagesForUrl(this.userData.url, this.id),
       });
       searchType = 'query';
     }

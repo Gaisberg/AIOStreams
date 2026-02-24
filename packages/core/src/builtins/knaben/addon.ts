@@ -57,7 +57,7 @@ export class KnabenAddon extends BaseDebridAddon<KnabenAddonConfig> {
     }
 
     const queries = this.buildQueries(parsedId, metadata, {
-      titleLanguages: getTitleLanguagesForUrl(knabenApiUrl),
+      titleLanguages: getTitleLanguagesForUrl(knabenApiUrl, this.id),
     });
 
     if (queries.length === 0) {

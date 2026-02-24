@@ -61,7 +61,7 @@ export class TorrentGalaxyAddon extends BaseDebridAddon<TorrentGalaxyAddonConfig
     }
 
     const queries = this.buildQueries(parsedId, metadata, {
-      titleLanguages: getTitleLanguagesForUrl(torrentGalaxyUrl),
+      titleLanguages: getTitleLanguagesForUrl(torrentGalaxyUrl, this.id),
     });
     if (metadata.imdbId) {
       queries.push(metadata.imdbId);

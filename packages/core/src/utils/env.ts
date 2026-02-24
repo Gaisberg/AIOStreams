@@ -342,28 +342,27 @@ const boolOrList = makeValidator((x) => {
 const titleLangMap = makeValidator<Record<string, string[]> | undefined>(
   (x) => {
     if (typeof x !== 'string' || !x.trim()) return undefined;
-    const result: Record<string, string[]> = {};
-    let currentDomain: string | null = null;
+    const keySpecMap: Record<string, string[]> = {};
+    let currentKey: string | null = null;
     for (const token of x
       .split(',')
       .map((t) => t.trim())
       .filter(Boolean)) {
       const colonIdx = token.indexOf(':');
       if (colonIdx !== -1) {
-        currentDomain = token.slice(0, colonIdx).trim().toLowerCase();
-        const firstValue = token
+        currentKey = token.slice(0, colonIdx).trim().toLowerCase();
+        const firstSpec = token
           .slice(colonIdx + 1)
           .trim()
           .toLowerCase();
-        if (currentDomain) {
-          result[currentDomain] = firstValue ? [firstValue] : [];
+        if (currentKey) {
+          keySpecMap[currentKey] = firstSpec ? [firstSpec] : [];
         }
-      } else if (currentDomain) {
-        result[currentDomain].push(token.toLowerCase());
+      } else if (currentKey) {
+        keySpecMap[currentKey].push(token.toLowerCase());
       }
     }
-    console.log(result);
-    return Object.keys(result).length ? result : undefined;
+    return Object.keys(keySpecMap).length ? keySpecMap : undefined;
   }
 );
 

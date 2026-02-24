@@ -37,6 +37,41 @@ function useAllTitles(url: string): boolean {
 }
 
 /**
+ * Extracts indexer name(s) from a URL using known aggregator URL patterns:
+ *   - Jackett:   /api/v2.0/indexers/<name>/results/torznab/...
+ *   - NZBHydra2: ?indexers=<name1>,<name2>,...
+ *
+ * Returns an array of lowercase indexer names, or an empty array if none found.
+ */
+function extractIndexerNames(url: string): string[] {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return [];
+  }
+
+  // Jackett: /api/v2.0/indexers/<name>/results/...
+  const jackettMatch = parsed.pathname.match(
+    /\/api\/v2\.0\/indexers\/([^/]+)\/results\//i
+  );
+  if (jackettMatch) {
+    return [decodeURIComponent(jackettMatch[1]).toLowerCase()];
+  }
+
+  // NZBHydra2: ?indexers=name1,name2,...
+  const indexersParam = parsed.searchParams.get('indexers');
+  if (indexersParam) {
+    return indexersParam
+      .split(',')
+      .map((n) => n.trim().toLowerCase())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+/**
  * Returns the list of title language specs to use when building scrape queries
  * for the given URL. Consults BUILTIN_SCRAPE_TITLE_LANGUAGES first (new system),
  * then falls back to BUILTIN_SCRAPE_WITH_ALL_TITLES (legacy).
@@ -47,9 +82,16 @@ function useAllTitles(url: string): boolean {
  *   - `original` – TMDB original-language titles
  *   - ISO 639-1  – titles tagged with that language (e.g. 'de', 'fr')
  *
+ * Match priority (highest first):
+ *   exact hostname > indexer name (Jackett/Hydra) > addon ID > wildcard (*)
+ *
  * @param url - The URL whose hostname is matched against the config.
+ * @param addonId - Optional addon ID (e.g. 'newznab', 'knaben') checked after indexer names, before wildcard.
  */
-export function getTitleLanguagesForUrl(url: string): string[] {
+export function getTitleLanguagesForUrl(
+  url: string,
+  addonId?: string
+): string[] {
   const config = Env.BUILTIN_SCRAPE_TITLE_LANGUAGES as
     | Record<string, string[]>
     | undefined;
@@ -65,12 +107,24 @@ export function getTitleLanguagesForUrl(url: string): string[] {
   let source: string;
 
   if (config !== undefined) {
-    const match = config[hostname] ?? config['*'];
-    if (match && match.length > 0) {
-      specs = match;
-      source = config[hostname] ? 'hostname match' : 'wildcard (*)';
+    if (config[hostname]?.length) {
+      specs = config[hostname];
+      source = 'hostname match';
     } else {
-      source = 'legacy fallback (no matching entry)';
+      const indexerNames = extractIndexerNames(url);
+      const matchedIndexer = indexerNames.find((n) => config[n]?.length);
+      if (matchedIndexer) {
+        specs = config[matchedIndexer];
+        source = `indexer name match (${matchedIndexer})`;
+      } else if (addonId && config[addonId]?.length) {
+        specs = config[addonId];
+        source = 'addon ID match';
+      } else if (config['*']?.length) {
+        specs = config['*'];
+        source = 'wildcard (*)';
+      } else {
+        source = 'legacy fallback (no matching entry)';
+      }
     }
   } else {
     source = 'legacy fallback (BUILTIN_SCRAPE_TITLE_LANGUAGES not set)';
@@ -80,7 +134,12 @@ export function getTitleLanguagesForUrl(url: string): string[] {
     specs = useAllTitles(url) ? ['all'] : ['default'];
   }
 
-  logger.debug(`Title language spec resolved`, { hostname, specs, source });
+  logger.debug(`Title language spec resolved`, {
+    hostname,
+    addonId,
+    specs,
+    source,
+  });
 
   return specs;
 }
