@@ -123,7 +123,10 @@ async function processTorrentsForDebridService(
     clientIp
   );
   if (!isTorrentDebridService(debridService)) {
-    throw new Error(`Service ${service.id} does not support torrent`);
+    logger.warn(
+      `Service ${service.id} does not support torrents, skipping torrent processing`
+    );
+    return [];
   }
 
   // Filter out library items that belong to a different service
@@ -423,7 +426,10 @@ async function processNZBsForDebridService(
     clientIp
   );
   if (!isUsenetDebridService(debridService)) {
-    throw new Error(`Service ${service.id} does not support usenet`);
+    logger.warn(
+      `Service ${service.id} does not support usenet, skipping NZB processing`
+    );
+    return [];
   }
 
   nzbs = nzbs.filter(
