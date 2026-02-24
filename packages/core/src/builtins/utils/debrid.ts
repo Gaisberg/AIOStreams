@@ -175,6 +175,13 @@ async function processTorrentsForDebridService(
     const magnetCheckResult = magnetCheckResults.find(
       (result) => result.hash === torrent.hash
     );
+    if (magnetCheckResult?.status === 'failed') {
+      logger.debug(`Skipping torrent as its status is failed`, {
+        service: service.id,
+        torrent: torrent.title,
+      });
+      continue;
+    }
     const parsedTorrent = parsedTitlesMap.get(
       torrent.title ?? magnetCheckResult?.name ?? ''
     );
