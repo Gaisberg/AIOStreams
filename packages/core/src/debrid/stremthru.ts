@@ -259,15 +259,18 @@ export class StremThruService
     sid?: string,
     checkOwned: boolean = true
   ): Promise<DebridDownload[]> {
-    let libraryHashes: Set<string> | undefined;
+    let libraryHashes = new Set<string>();
+    let failedHashes = new Set<string>();
     if (checkOwned) {
       try {
         const libraryItems = await this.listMagnets();
-        libraryHashes = new Set(
-          libraryItems
-            .filter((item) => item.hash)
-            .map((item) => item.hash!.toLowerCase())
-        );
+        for (const item of libraryItems) {
+          if (item.hash && ['failed', 'invalid'].includes(item.status)) {
+            failedHashes.add(item.hash.toLowerCase());
+          } else if (item.hash) {
+            libraryHashes.add(item.hash.toLowerCase());
+          }
+        }
       } catch (error) {
         logger.warn(
           `Failed to list library magnets for checkOwned on ${this.serviceName}`,
@@ -338,11 +341,11 @@ export class StremThruService
     }
     const allResults = [...cachedResults, ...newResults];
 
-    if (libraryHashes) {
-      for (const item of allResults) {
-        if (item.hash && libraryHashes.has(item.hash.toLowerCase())) {
-          item.library = true;
-        }
+    for (const item of allResults) {
+      if (item.hash && failedHashes.has(item.hash.toLowerCase())) {
+        item.status = 'failed';
+      } else if (item.hash && libraryHashes.has(item.hash.toLowerCase())) {
+        item.library = true;
       }
     }
 
@@ -485,15 +488,18 @@ export class StremThruService
       return [];
     }
 
-    let libraryHashes: Set<string> | undefined;
+    let libraryHashes = new Set<string>();
+    let failedHashes = new Set<string>();
     if (checkOwned) {
       try {
         const libraryItems = await this.listNzbs();
-        libraryHashes = new Set(
-          libraryItems
-            .filter((item) => item.hash)
-            .map((item) => item.hash!.toLowerCase())
-        );
+        for (const item of libraryItems) {
+          if (item.hash && ['failed', 'invalid'].includes(item.status)) {
+            failedHashes.add(item.hash.toLowerCase());
+          } else if (item.hash) {
+            libraryHashes.add(item.hash.toLowerCase());
+          }
+        }
       } catch (error) {
         logger.warn(
           `Failed to list library newz for checkOwned on ${this.serviceName}`,
@@ -574,11 +580,11 @@ export class StremThruService
 
     const allResults = [...cachedResults, ...newResults];
 
-    if (libraryHashes) {
-      for (const item of allResults) {
-        if (item.hash && libraryHashes.has(item.hash.toLowerCase())) {
-          item.library = true;
-        }
+    for (const item of allResults) {
+      if (item.hash && failedHashes.has(item.hash.toLowerCase())) {
+        item.status = 'failed';
+      } else if (item.hash && libraryHashes.has(item.hash.toLowerCase())) {
+        item.library = true;
       }
     }
 
