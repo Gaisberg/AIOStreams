@@ -855,6 +855,7 @@ export abstract class BaseDebridAddon<T extends BaseDebridConfig> {
       {
         ...searchMetadata,
         titles: searchMetadata.titles.length,
+        titlesWithLang: searchMetadata.titlesWithLang?.length,
       }
     );
 
