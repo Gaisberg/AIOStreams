@@ -28,6 +28,7 @@ import { z, ZodError } from 'zod';
 import { Tooltip } from '../ui/tooltip';
 import { cn } from '../ui/core/styling';
 import { useMenu } from '@/context/menu';
+import { applyTemplateConditionals } from '@/lib/template-processor';
 import { APIError, fetchTemplates } from '@/lib/api';
 import { Switch } from '../ui/switch';
 import { useMode } from '@/context/mode';
@@ -603,25 +604,29 @@ export function ConfigTemplatesModal({
         if (typeof condition !== 'string' || !condition.trim()) {
           errors.push(`${path}.__if: condition must be a non-empty string`);
         } else {
-          // Extract the variable reference (strip negation and operator)
-          const bare = condition.trim().replace(/^!/, '').split(/\s+/)[0];
-          const dotIdx = bare.indexOf('.');
-          if (dotIdx === -1) {
-            errors.push(
-              `${path}.__if: "${condition}" is not a valid condition - expected "inputs.<id>" or "services.<id>"`
-            );
-          } else {
-            const ns = bare.slice(0, dotIdx);
-            const key = bare.slice(dotIdx + 1);
-            const topKey = key.split('.')[0];
-            if (ns !== 'inputs' && ns !== 'services') {
+          // Split on compound operators; validate each sub-condition independently
+          const subConditions = condition.trim().split(/ and | or | xor /);
+          for (const subCond of subConditions) {
+            // Extract the variable reference (strip negation and operator)
+            const bare = subCond.trim().replace(/^!/, '').split(/\s+/)[0];
+            const dotIdx = bare.indexOf('.');
+            if (dotIdx === -1) {
               errors.push(
-                `${path}.__if: unknown namespace "${ns}" - must be "inputs" or "services"`
+                `${path}.__if: "${subCond.trim()}" is not a valid condition - expected "inputs.<id>" or "services.<id>"`
               );
-            } else if (ns === 'inputs' && !declaredInputIds.has(topKey)) {
-              warnings.push(
-                `${path}.__if: references undeclared input "${topKey}"`
-              );
+            } else {
+              const ns = bare.slice(0, dotIdx);
+              const key = bare.slice(dotIdx + 1);
+              const topKey = key.split('.')[0];
+              if (ns !== 'inputs' && ns !== 'services') {
+                errors.push(
+                  `${path}.__if: unknown namespace "${ns}" - must be "inputs" or "services"`
+                );
+              } else if (ns === 'inputs' && !declaredInputIds.has(topKey)) {
+                warnings.push(
+                  `${path}.__if: references undeclared input "${topKey}"`
+                );
+              }
             }
           }
         }
@@ -668,6 +673,10 @@ export function ConfigTemplatesModal({
         if ('default' in node) {
           validateExpressions(node.default, `${path}.__switch.default`);
         }
+        return;
+      }
+      if ('__value' in node) {
+        validateExpressions(node.__value, `${path}.__value`);
         return;
       }
       for (const [k, v] of Object.entries(node)) {
@@ -1205,173 +1214,6 @@ export function ConfigTemplatesModal({
     return serviceInputs;
   };
 
-  // Resolve a dot-separated key path (e.g. "subsectionId.subOptionId") against an object.
-  // Used so that subsection inputs can be referenced as inputs.<subsectionId>.<subOptionId>.
-  const getNestedInputValue = (
-    inputVals: Record<string, any>,
-    key: string
-  ): any => {
-    const parts = key.split('.');
-    let current: any = inputVals;
-    for (const part of parts) {
-      if (current === undefined || current === null) return undefined;
-      current = current[part];
-    }
-    return current;
-  };
-
-  // Evaluate a condition string like "inputs.debridio" or "!services.realdebrid"
-  const evaluateTemplateCondition = (
-    condition: string,
-    inputVals: Record<string, any>,
-    selectedSvcs: string[]
-  ): boolean => {
-    const trimmed = condition.trim();
-    const negated = trimmed.startsWith('!');
-    const expr = negated ? trimmed.slice(1).trim() : trimmed;
-
-    // Operator form: "inputs.<key> <op> <value>"  (op: ==, !=, includes)
-    const opMatch = expr.match(/^(\w+)\.(.+?)\s+(==|!=|includes)\s+(.+)$/);
-    if (opMatch) {
-      const [, ns, key, op, rawValue] = opMatch;
-      const rhs = rawValue.trim();
-      let result = false;
-      if (ns === 'inputs') {
-        const lhs = getNestedInputValue(inputVals, key);
-        if (op === '==') {
-          result = String(lhs ?? '') === rhs;
-        } else if (op === '!=') {
-          result = String(lhs ?? '') !== rhs;
-        } else if (op === 'includes') {
-          if (Array.isArray(lhs)) {
-            result = lhs.includes(rhs);
-          } else if (typeof lhs === 'string') {
-            result = lhs.includes(rhs);
-          }
-        }
-      }
-      // services.* doesn't support operators - fall through to falsy
-      return negated ? !result : result;
-    }
-
-    // Bare truthiness form: "inputs.<key>" or "services.<key>"
-    const dotIdx = expr.indexOf('.');
-    if (dotIdx === -1) return negated;
-    const ns = expr.slice(0, dotIdx);
-    const key = expr.slice(dotIdx + 1);
-    let result = false;
-    if (ns === 'inputs') {
-      const val = getNestedInputValue(inputVals, key);
-      result =
-        val !== undefined &&
-        val !== null &&
-        val !== '' &&
-        val !== false &&
-        !(Array.isArray(val) && val.length === 0);
-    } else if (ns === 'services') {
-      result = selectedSvcs.includes(key);
-    }
-    return negated ? !result : result;
-  };
-
-  // Resolve a "inputs.<id>" or "services.<id>" reference to its runtime value.
-  const resolveRef = (
-    ref: string,
-    inputVals: Record<string, any>,
-    selectedSvcs: string[]
-  ): any => {
-    const trimmed = ref.trim();
-    if (trimmed.startsWith('inputs.')) {
-      return getNestedInputValue(inputVals, trimmed.slice('inputs.'.length));
-    }
-    if (trimmed.startsWith('services.')) {
-      return selectedSvcs.includes(trimmed.slice('services.'.length));
-    }
-    return undefined;
-  };
-
-  // Recursively walk config, process __if, __switch, and {{}} interpolation
-  const applyTemplateConditionals = (
-    value: any,
-    inputVals: Record<string, any>,
-    selectedSvcs: string[]
-  ): any => {
-    if (Array.isArray(value)) {
-      return value
-        .filter((item) => {
-          if (item && typeof item === 'object' && '__if' in item) {
-            return evaluateTemplateCondition(
-              item.__if,
-              inputVals,
-              selectedSvcs
-            );
-          }
-          return true;
-        })
-        .flatMap((item) => {
-          if (item && typeof item === 'object' && '__if' in item) {
-            const { __if: _if, ...rest } = item;
-            return applyTemplateConditionals(rest, inputVals, selectedSvcs);
-          }
-          const resolved = applyTemplateConditionals(
-            item,
-            inputVals,
-            selectedSvcs
-          );
-          // If a string item (e.g. "{{inputs.languages}}") resolved to an array, spread it
-          return Array.isArray(resolved) ? resolved : [resolved];
-        });
-    }
-    if (value && typeof value === 'object') {
-      // __switch: replace the whole object with the matching case value
-      if ('__switch' in value) {
-        const switchRef: string = value.__switch;
-        const cases: Record<string, any> = value.cases ?? {};
-        const defaultVal: any = value.default ?? null;
-        const resolved = resolveRef(switchRef, inputVals, selectedSvcs);
-        const key =
-          resolved !== undefined && resolved !== null ? String(resolved) : null;
-        const chosen = key !== null && key in cases ? cases[key] : defaultVal;
-        return applyTemplateConditionals(chosen, inputVals, selectedSvcs);
-      }
-      const result: Record<string, any> = {};
-      for (const [k, v] of Object.entries(value)) {
-        result[k] = applyTemplateConditionals(v, inputVals, selectedSvcs);
-      }
-      return result;
-    }
-    // String interpolation: replace {{inputs.<id>}} and {{services.<id>}}.
-    // If the entire string is a single {{...}} token, return the raw value
-    // (preserving arrays, numbers, booleans) instead of stringifying.
-    if (typeof value === 'string') {
-      const singleToken = value.match(/^\{\{(inputs|services)\.([^}]+)\}\}$/);
-      if (singleToken) {
-        const [, ns, key] = singleToken;
-        if (ns === 'inputs') {
-          const v = getNestedInputValue(inputVals, key);
-          return v !== undefined && v !== null ? v : '';
-        }
-        if (ns === 'services') {
-          return selectedSvcs.includes(key);
-        }
-      }
-      return value.replace(
-        /\{\{(inputs|services)\.([^}]+)\}\}/g,
-        (_, ns, key) => {
-          if (ns === 'inputs') {
-            const v = getNestedInputValue(inputVals, key);
-            return v !== undefined && v !== null ? String(v) : '';
-          }
-          if (ns === 'services') {
-            return String(selectedSvcs.includes(key));
-          }
-          return '';
-        }
-      );
-    }
-    return value;
-  };
-
   // Shared logic: process a (possibly conditionals-applied) template and navigate
   const proceedWithTemplate = (template: Template) => {
     const processed = processTemplate(template);
@@ -1421,7 +1263,7 @@ export function ConfigTemplatesModal({
       );
     }
 
-    const options: Option[] = (template.metadata as any).inputs || [];
+    const options: Option[] = template.metadata.inputs || [];
     if (options.length > 0) {
       // Initialise with defaults
       const defaults: Record<string, any> = {};
