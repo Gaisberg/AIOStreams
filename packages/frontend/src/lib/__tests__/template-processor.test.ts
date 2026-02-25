@@ -2601,3 +2601,410 @@ describe('full config integration', () => {
     ]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// applyTemplateConditionals — __if + __value at the object-key level
+// ---------------------------------------------------------------------------
+describe('applyTemplateConditionals — __if + __value at object-key level', () => {
+  const noSvcs: string[] = [];
+
+  it('key is set to value when condition is true', () => {
+    const result = applyTemplateConditionals(
+      {
+        formatter: { __if: 'inputs.useFormatter', __value: { id: 'tamtaro' } },
+      },
+      { useFormatter: true },
+      noSvcs
+    );
+    expect(result).toEqual({ formatter: { id: 'tamtaro' } });
+  });
+
+  it('key is dropped entirely when condition is false', () => {
+    const result = applyTemplateConditionals(
+      {
+        formatter: { __if: 'inputs.useFormatter', __value: { id: 'tamtaro' } },
+      },
+      { useFormatter: false },
+      noSvcs
+    );
+    expect(result).toEqual({});
+    expect('formatter' in result).toBe(false);
+  });
+
+  it('key is dropped when condition is false — does not become null or undefined', () => {
+    const result = applyTemplateConditionals(
+      {
+        a: 1,
+        b: { __if: 'inputs.flag', __value: 'hello' },
+        c: 3,
+      },
+      { flag: false },
+      noSvcs
+    );
+    expect(result).toEqual({ a: 1, c: 3 });
+    expect('b' in result).toBe(false);
+  });
+
+  it('static keys alongside conditional key are always preserved', () => {
+    const result = applyTemplateConditionals(
+      {
+        static1: 'always',
+        conditional: { __if: 'inputs.flag', __value: 'yes' },
+        static2: 42,
+      },
+      { flag: true },
+      noSvcs
+    );
+    expect(result).toEqual({
+      static1: 'always',
+      conditional: 'yes',
+      static2: 42,
+    });
+  });
+
+  it('negated condition: key present when flag is false', () => {
+    const result = applyTemplateConditionals(
+      {
+        formatter: { __if: '!inputs.retainFormatter', __value: { id: 'mine' } },
+      },
+      { retainFormatter: false },
+      noSvcs
+    );
+    expect(result).toEqual({ formatter: { id: 'mine' } });
+  });
+
+  it('negated condition: key dropped when flag is true', () => {
+    const result = applyTemplateConditionals(
+      {
+        formatter: { __if: '!inputs.retainFormatter', __value: { id: 'mine' } },
+      },
+      { retainFormatter: true },
+      noSvcs
+    );
+    expect(result).toEqual({});
+  });
+
+  it('compound condition (and): key included only when both pass', () => {
+    const cfg = {
+      presets: {
+        __if: 'inputs.flag and inputs.tier == pro',
+        __value: ['a', 'b'],
+      },
+    };
+    expect(
+      applyTemplateConditionals(cfg, { flag: true, tier: 'pro' }, noSvcs)
+    ).toEqual({ presets: ['a', 'b'] });
+    expect(
+      applyTemplateConditionals(cfg, { flag: true, tier: 'basic' }, noSvcs)
+    ).toEqual({});
+  });
+
+  it('numeric condition: key included when value exceeds threshold', () => {
+    const cfg = {
+      extra: { __if: 'inputs.count > 5', __value: 'big' },
+    };
+    expect(applyTemplateConditionals(cfg, { count: 10 }, noSvcs)).toEqual({
+      extra: 'big',
+    });
+    expect(applyTemplateConditionals(cfg, { count: 3 }, noSvcs)).toEqual({});
+  });
+
+  it('__value is recursed — array items with their own __if are processed', () => {
+    const result = applyTemplateConditionals(
+      {
+        presets: {
+          __if: 'inputs.include',
+          __value: [{ __if: 'inputs.flag', type: 'a' }, { type: 'b' }],
+        },
+      },
+      { include: true, flag: false },
+      noSvcs
+    );
+    expect(result).toEqual({ presets: [{ type: 'b' }] });
+  });
+
+  it('{{}} interpolation works inside __value', () => {
+    const result = applyTemplateConditionals(
+      { label: { __if: 'inputs.show', __value: 'Hello {{inputs.name}}' } },
+      { show: true, name: 'World' },
+      noSvcs
+    );
+    expect(result).toEqual({ label: 'Hello World' });
+  });
+
+  it('multiple conditional keys in one object — each evaluated independently', () => {
+    const result = applyTemplateConditionals(
+      {
+        a: { __if: 'inputs.showA', __value: 1 },
+        b: { __if: 'inputs.showB', __value: 2 },
+        c: { __if: 'inputs.showC', __value: 3 },
+      },
+      { showA: true, showB: false, showC: true },
+      noSvcs
+    );
+    expect(result).toEqual({ a: 1, c: 3 });
+  });
+
+  it('service condition: key present when service selected', () => {
+    const result = applyTemplateConditionals(
+      {
+        torboxOptions: { __if: 'services.torbox', __value: { tier: 'pro' } },
+      },
+      {},
+      ['torbox']
+    );
+    expect(result).toEqual({ torboxOptions: { tier: 'pro' } });
+  });
+
+  it('service condition: key dropped when service not selected', () => {
+    const result = applyTemplateConditionals(
+      {
+        torboxOptions: { __if: 'services.torbox', __value: { tier: 'pro' } },
+      },
+      {},
+      []
+    );
+    expect(result).toEqual({});
+  });
+});
+
+// ---------------------------------------------------------------------------
+// applyTemplateConditionals — __remove
+// ---------------------------------------------------------------------------
+describe('applyTemplateConditionals — __remove', () => {
+  const noSvcs: string[] = [];
+
+  it('__remove: true always drops the key', () => {
+    const result = applyTemplateConditionals(
+      { formatter: { __remove: true } },
+      {},
+      noSvcs
+    );
+    expect(result).toEqual({});
+    expect('formatter' in result).toBe(false);
+  });
+
+  it('static keys alongside __remove are preserved', () => {
+    const result = applyTemplateConditionals(
+      { keep: 'yes', drop: { __remove: true }, alsoKeep: 42 },
+      {},
+      noSvcs
+    );
+    expect(result).toEqual({ keep: 'yes', alsoKeep: 42 });
+  });
+
+  it('multiple __remove keys — all dropped', () => {
+    const result = applyTemplateConditionals(
+      {
+        a: { __remove: true },
+        b: 'stays',
+        c: { __remove: true },
+      },
+      {},
+      noSvcs
+    );
+    expect(result).toEqual({ b: 'stays' });
+  });
+
+  it('__remove inside a __switch case — key is dropped when that case is chosen', () => {
+    const result = applyTemplateConditionals(
+      {
+        formatter: {
+          __switch: 'inputs.formatterChoice',
+          cases: {
+            retain: { __remove: true },
+            tamtaro: { id: 'tamtaro' },
+          },
+          default: { id: 'prism' },
+        },
+      },
+      { formatterChoice: 'retain' },
+      noSvcs
+    );
+    expect(result).toEqual({});
+    expect('formatter' in result).toBe(false);
+  });
+
+  it('__remove inside a __switch case — other cases still set the key', () => {
+    const result = applyTemplateConditionals(
+      {
+        formatter: {
+          __switch: 'inputs.formatterChoice',
+          cases: {
+            retain: { __remove: true },
+            tamtaro: { id: 'tamtaro' },
+          },
+          default: { id: 'prism' },
+        },
+      },
+      { formatterChoice: 'tamtaro' },
+      noSvcs
+    );
+    expect(result).toEqual({ formatter: { id: 'tamtaro' } });
+  });
+
+  it('__remove in __switch default — key dropped when no case matches', () => {
+    const result = applyTemplateConditionals(
+      {
+        formatter: {
+          __switch: 'inputs.formatterChoice',
+          cases: {
+            tamtaro: { id: 'tamtaro' },
+          },
+          default: { __remove: true },
+        },
+      },
+      { formatterChoice: 'unknown' },
+      noSvcs
+    );
+    expect(result).toEqual({});
+  });
+
+  it('__remove: false does NOT remove the key (only true triggers removal)', () => {
+    // __remove: false is treated as a plain object with __remove property
+    const result = applyTemplateConditionals(
+      { formatter: { __remove: false, id: 'prism' } },
+      {},
+      noSvcs
+    );
+    // Falls through to regular property loop — keeps both __remove and id
+    expect(result.formatter).toEqual({ __remove: false, id: 'prism' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Practical scenarios — conditional fields (includeAddons / retainFormatter)
+// ---------------------------------------------------------------------------
+describe('practical: conditional config fields via __if+__value and __remove', () => {
+  const noSvcs: string[] = [];
+
+  it('includeAddons=true → presets field is set to the addon list', () => {
+    const result = applyTemplateConditionals(
+      {
+        presets: {
+          __if: 'inputs.includeAddons',
+          __value: [
+            { type: 'torrentio', enabled: true },
+            { __if: 'services.torbox', type: 'torbox-search', enabled: true },
+          ],
+        },
+      },
+      { includeAddons: true },
+      ['torbox']
+    );
+    expect(result.presets).toEqual([
+      { type: 'torrentio', enabled: true },
+      { type: 'torbox-search', enabled: true },
+    ]);
+  });
+
+  it('includeAddons=false → presets key is absent (user addons preserved)', () => {
+    const result = applyTemplateConditionals(
+      {
+        presets: {
+          __if: 'inputs.includeAddons',
+          __value: [{ type: 'torrentio', enabled: true }],
+        },
+      },
+      { includeAddons: false },
+      noSvcs
+    );
+    expect('presets' in result).toBe(false);
+  });
+
+  it('retainFormatter=false → formatter key is set to template default', () => {
+    const result = applyTemplateConditionals(
+      {
+        formatter: {
+          __if: '!inputs.retainFormatter',
+          __value: { id: 'tamtaro' },
+        },
+      },
+      { retainFormatter: false },
+      noSvcs
+    );
+    expect(result).toEqual({ formatter: { id: 'tamtaro' } });
+  });
+
+  it('retainFormatter=true → formatter key is absent (user formatter preserved)', () => {
+    const result = applyTemplateConditionals(
+      {
+        formatter: {
+          __if: '!inputs.retainFormatter',
+          __value: { id: 'tamtaro' },
+        },
+      },
+      { retainFormatter: true },
+      noSvcs
+    );
+    expect('formatter' in result).toBe(false);
+  });
+
+  it('__switch with retain option removes the key, other choices set it', () => {
+    const config = {
+      formatter: {
+        __switch: 'inputs.formatterChoice',
+        cases: {
+          retain: { __remove: true },
+          default: { id: 'default-fmt' },
+          custom: { id: 'custom-fmt' },
+        },
+        default: { id: 'fallback-fmt' },
+      },
+    };
+    expect(
+      applyTemplateConditionals(config, { formatterChoice: 'retain' }, noSvcs)
+    ).toEqual({});
+    expect(
+      applyTemplateConditionals(config, { formatterChoice: 'default' }, noSvcs)
+    ).toEqual({ formatter: { id: 'default-fmt' } });
+    expect(
+      applyTemplateConditionals(config, { formatterChoice: 'other' }, noSvcs)
+    ).toEqual({ formatter: { id: 'fallback-fmt' } });
+  });
+
+  it('combined: both presets and formatter conditionally present', () => {
+    const config = {
+      formatter: {
+        __if: '!inputs.retainFormatter',
+        __value: { id: 'tamtaro' },
+      },
+      presets: {
+        __if: 'inputs.includeAddons',
+        __value: [{ type: 'comet' }],
+      },
+      alwaysHere: true,
+    };
+
+    // Both included
+    expect(
+      applyTemplateConditionals(
+        config,
+        { retainFormatter: false, includeAddons: true },
+        noSvcs
+      )
+    ).toEqual({
+      formatter: { id: 'tamtaro' },
+      presets: [{ type: 'comet' }],
+      alwaysHere: true,
+    });
+
+    // Both dropped
+    expect(
+      applyTemplateConditionals(
+        config,
+        { retainFormatter: true, includeAddons: false },
+        noSvcs
+      )
+    ).toEqual({ alwaysHere: true });
+
+    // Only formatter retained (drop formatter, include presets)
+    const r3 = applyTemplateConditionals(
+      config,
+      { retainFormatter: true, includeAddons: true },
+      noSvcs
+    );
+    expect('formatter' in r3).toBe(false);
+    expect(r3.presets).toEqual([{ type: 'comet' }]);
+  });
+});
