@@ -679,6 +679,10 @@ export function ConfigTemplatesModal({
         validateExpressions(node.__value, `${path}.__value`);
         return;
       }
+      // __remove: true — marks key for removal, nothing to recurse into
+      if ('__remove' in node) {
+        return;
+      }
       for (const [k, v] of Object.entries(node)) {
         validateExpressions(v, `${path}.${k}`);
       }

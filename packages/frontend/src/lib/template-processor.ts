@@ -3,6 +3,12 @@
  */
 
 /**
+ * Internal sentinel returned by applyTemplateConditionals when an object
+ * property should be removed from its parent object.
+ */
+const REMOVE_KEY: unique symbol = Symbol('aiostreams.remove');
+
+/**
  * Resolve a dot-separated key path (e.g. "subsectionId.subOptionId") against
  * an inputs object, enabling subsection references like `inputs.proxy.url`.
  */
@@ -154,10 +160,16 @@ export function resolveRef(
 
 /**
  * Recursively walk a config value and evaluate all dynamic expressions:
- *   - `__if`     — conditional object inclusion in arrays
- *   - `__value`  — inject a primitive or spread an array into the parent array
- *   - `__switch` — replace the whole object with the matching case value
- *   - `{{}}`     — string interpolation (type-preserving for sole tokens)
+ *   - `__if`                    — conditional item removal in arrays
+ *   - `__if` + `__value`        — conditional key inclusion at the object-property
+ *                                 level: true → key = value; false → key is dropped
+ *   - `__value`                 — inject a primitive or spread an array into the
+ *                                 parent array
+ *   - `__switch`                — replace the whole object with the matching case
+ *   - `__remove: true`          — unconditionally drop this key from its parent
+ *                                 object (also works as a __switch case value)
+ *   - `{{}}`                    — string interpolation (type-preserving for sole
+ *                                 tokens)
  */
 export function applyTemplateConditionals(
   value: any,
@@ -217,9 +229,34 @@ export function applyTemplateConditionals(
       const chosen = key !== null && key in cases ? cases[key] : defaultVal;
       return applyTemplateConditionals(chosen, inputVals, selectedSvcs);
     }
+
+    // __if + __value at the object-property-value level
+    if ('__if' in value && '__value' in value) {
+      if (
+        evaluateTemplateCondition((value as any).__if, inputVals, selectedSvcs)
+      ) {
+        return applyTemplateConditionals(
+          (value as any).__value,
+          inputVals,
+          selectedSvcs
+        );
+      }
+      return REMOVE_KEY;
+    }
+
+    // __remove: true → unconditionally drop this key from its parent object.
+    if ((value as any).__remove === true) {
+      return REMOVE_KEY;
+    }
+
+    // Regular property walk.
+    // Keys whose resolved value is the REMOVE_KEY sentinel are silently dropped.
     const result: Record<string, any> = {};
     for (const [k, v] of Object.entries(value)) {
-      result[k] = applyTemplateConditionals(v, inputVals, selectedSvcs);
+      const resolved = applyTemplateConditionals(v, inputVals, selectedSvcs);
+      if (resolved !== (REMOVE_KEY as unknown)) {
+        result[k] = resolved;
+      }
     }
     return result;
   }
