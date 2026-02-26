@@ -28,7 +28,10 @@ import { z, ZodError } from 'zod';
 import { Tooltip } from '../ui/tooltip';
 import { cn } from '../ui/core/styling';
 import { useMenu } from '@/context/menu';
-import { applyTemplateConditionals } from '@/lib/template-processor';
+import {
+  applyTemplateConditionals,
+  resolveCredentialRefs,
+} from '@/lib/template-processor';
 import { APIError, fetchTemplates } from '@/lib/api';
 import { Switch } from '../ui/switch';
 import { useMode } from '@/context/mode';
@@ -1558,6 +1561,9 @@ export function ConfigTemplatesModal({
           selectedServices.includes(s.id)
         );
       }
+
+      // Resolve any {{services.X.Y}} credential refs
+      resolveCredentialRefs(migratedData, inputValues);
 
       setUserData((prev) => ({
         ...prev,

@@ -168,8 +168,15 @@ export function resolveRef(
  *   - `__switch`                — replace the whole object with the matching case
  *   - `__remove: true`          — unconditionally drop this key from its parent
  *                                 object (also works as a __switch case value)
- *   - `{{}}`                    — string interpolation (type-preserving for sole
- *                                 tokens)
+ *   - `{{inputs.<id>}}`         — string interpolation; sole-token refs
+ *                                 preserve the original type (array, number, …)
+ *   - `{{services.<id>}}`       — resolves to a boolean (true if the service is
+ *                                 selected); sole-token refs return the boolean
+ *                                 directly, multi-token refs stringify it
+ *   - `{{services.<id>.<key>}}` — credential ref: intentionally **preserved as a
+ *                                 literal string** so that the final value can be
+ *                                 filled in by `resolveCredentialRefs()` once the
+ *                                 user's credential inputs are available
  */
 export function applyTemplateConditionals(
   value: any,
@@ -273,6 +280,9 @@ export function applyTemplateConditionals(
         return v !== undefined && v !== null ? v : '';
       }
       if (ns === 'services') {
+        // preserve two segment service reference for confirmLoadTemplate
+        // where the actual credential value will be available.
+        if (key.includes('.')) return `{{services.${key}}}`;
         return selectedSvcs.includes(key);
       }
     }
@@ -284,6 +294,7 @@ export function applyTemplateConditionals(
           return v !== undefined && v !== null ? String(v) : '';
         }
         if (ns === 'services') {
+          if (key.includes('.')) return `{{services.${key}}}`;
           return String(selectedSvcs.includes(key));
         }
         return '';
@@ -291,5 +302,32 @@ export function applyTemplateConditionals(
     );
   }
 
+  return value;
+}
+
+/**
+ * Replace all `{{services.<serviceId>.<credKey>}}` placeholders that were
+ * **preserved** (not resolved) by `applyTemplateConditionals` with the actual
+ * credential values from the provided lookup map.
+ */
+export function resolveCredentialRefs(
+  value: any,
+  credentialValues: Record<string, string>
+): any {
+  if (typeof value === 'string') {
+    return value.replace(
+      /\{\{services\.(\w[\w-]*)\.(\w[\w-]*)\}\}/g,
+      (_: string, serviceId: string, credKey: string) =>
+        credentialValues[`service_${serviceId}_${credKey}`] ?? ''
+    );
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => resolveCredentialRefs(item, credentialValues));
+  }
+  if (value && typeof value === 'object') {
+    for (const k of Object.keys(value)) {
+      value[k] = resolveCredentialRefs(value[k], credentialValues);
+    }
+  }
   return value;
 }
