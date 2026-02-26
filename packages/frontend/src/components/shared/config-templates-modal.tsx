@@ -1655,7 +1655,7 @@ export function ConfigTemplatesModal({
           className="w-full"
         />
 
-        <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
+        <div className="space-y-3 max-h-[400px] overflow-y-auto pr-3">
           {visibleOptions.length === 0 ? (
             <div className="text-center py-6 text-gray-400 text-sm">
               No options available in simple mode. Switch to Advanced to see all
@@ -2202,7 +2202,7 @@ export function ConfigTemplatesModal({
         title="Template Options"
         description="Customise this template to your needs"
       >
-        <div className="space-y-4">{renderTemplateInputs()}</div>
+        <div className="space-y-4 min-w-[480px]">{renderTemplateInputs()}</div>
       </Modal>
 
       {/* Service Selection Modal */}
