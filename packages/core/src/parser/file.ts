@@ -118,7 +118,9 @@ class FileParser {
     }
     // prevent the title from being parsed for info
     if (parsed.title && parsed.title.length > 4) {
-      filename = filename.replace(parsed.title, '').trim();
+      const escapedTitle = parsed.title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const titleRegex = new RegExp(escapedTitle.replace(/ /g, '[._ ]'), 'i');
+      filename = filename.replace(titleRegex, '').trim();
       filename = filename.replace(/\s+/g, '.').replace(/^\.+|\.+$/g, '');
     }
     const resolution =
