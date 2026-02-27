@@ -9,7 +9,10 @@ import {
   saveLocalStorageTemplates,
   compareVersions,
 } from '@/lib/templates/storage';
-import { validateTemplate } from '@/lib/templates/validator';
+import {
+  validateTemplate,
+  detectDuplicateKeys,
+} from '@/lib/templates/validator';
 import { UseValidationModal } from './validationModal';
 
 export interface UseTemplateImportParams {
@@ -21,6 +24,7 @@ export interface UseTemplateImportParams {
   >;
   validationModal: UseValidationModal;
   handleLoadTemplate: (template: Template) => void;
+  executeLoadTemplate: (template: Template) => void;
 }
 
 export interface UseTemplateImport {
@@ -55,6 +59,7 @@ export function useTemplateImport({
   setTemplateValidations,
   validationModal,
   handleLoadTemplate,
+  executeLoadTemplate,
 }: UseTemplateImportParams): UseTemplateImport {
   const [showImportModal, setShowImportModal] = useState(false);
   const [importUrl, setImportUrl] = useState('');
@@ -95,13 +100,22 @@ export function useTemplateImport({
     },
   });
 
-  const processImportedTemplate = (data: any, sourceUrl?: string) => {
+  const processImportedTemplate = (
+    data: any,
+    sourceUrl?: string,
+    rawJson?: string
+  ) => {
     try {
       const isArray = Array.isArray(data);
       const templateData = isArray ? data : [data];
 
       const importedTemplates: Template[] = [];
       const allImportWarnings: string[] = [];
+
+      if (rawJson) {
+        const dupWarnings = detectDuplicateKeys(rawJson);
+        allImportWarnings.push(...dupWarnings);
+      }
 
       for (const item of templateData) {
         if (!item.config) {
@@ -235,8 +249,9 @@ export function useTemplateImport({
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      const data = await response.json();
-      processImportedTemplate(data, importUrl);
+      const rawJson = await response.text();
+      const data = JSON.parse(rawJson);
+      processImportedTemplate(data, importUrl, rawJson);
     } catch (error) {
       toast.error('Failed to import template: ' + (error as Error).message);
     } finally {
@@ -254,7 +269,7 @@ export function useTemplateImport({
       try {
         const text = await file.text();
         const data = JSON.parse(text);
-        processImportedTemplate(data);
+        processImportedTemplate(data, undefined, text);
       } catch (error) {
         toast.error('Failed to read file: ' + (error as Error).message);
       }
@@ -308,7 +323,7 @@ export function useTemplateImport({
     ) {
       const idx = selectedIndex ?? 0;
       setShowImportConfirmModal(false);
-      handleLoadTemplate(pendingImportTemplates[idx]);
+      executeLoadTemplate(pendingImportTemplates[idx]);
       setPendingImportTemplates([]);
       setSelectedPendingTemplateIndex(null);
       setShowDeepLinkWarning(false);

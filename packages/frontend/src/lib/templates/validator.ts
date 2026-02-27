@@ -566,3 +566,63 @@ export function validateTemplate(
 
   return { isValid: errors.length === 0, warnings, errors };
 }
+
+/**
+ * Scan a raw JSON string for duplicate object keys at any nesting level.
+ */
+export function detectDuplicateKeys(rawJson: string): string[] {
+  const warnings: string[] = [];
+
+  const stack: Array<{ path: string; seen: Set<string> }> = [];
+  const pathStack: string[] = [];
+
+  let i = 0;
+  while (i < rawJson.length) {
+    const ch = rawJson[i];
+
+    if (ch === '{') {
+      const path = pathStack.join('') || 'root';
+      stack.push({ path, seen: new Set() });
+      i++;
+      continue;
+    }
+
+    if (ch === '}') {
+      stack.pop();
+      i++;
+      continue;
+    }
+
+    if (ch === '"' && stack.length > 0) {
+      let j = i + 1;
+      let key = '';
+      while (j < rawJson.length) {
+        if (rawJson[j] === '\\') {
+          j += 2;
+          continue;
+        }
+        if (rawJson[j] === '"') break;
+        key += rawJson[j];
+        j++;
+      }
+      j++; // skip closing quote
+      // Skip whitespace
+      while (j < rawJson.length && /\s/.test(rawJson[j])) j++;
+      // If followed by ':', this is an object key
+      if (rawJson[j] === ':') {
+        const frame = stack[stack.length - 1];
+        if (frame.seen.has(key)) {
+          warnings.push(`${frame.path}: duplicate key "${key}"`);
+        } else {
+          frame.seen.add(key);
+        }
+        i = j + 1; // skip past ':'
+        continue;
+      }
+    }
+
+    i++;
+  }
+
+  return warnings;
+}

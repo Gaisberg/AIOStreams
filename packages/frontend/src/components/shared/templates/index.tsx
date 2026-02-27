@@ -63,6 +63,7 @@ export function ConfigTemplatesModal({
     setTemplateValidations: loader.setTemplateValidations,
     validationModal,
     handleLoadTemplate: wizard.handleLoadTemplate,
+    executeLoadTemplate: wizard.executeLoadTemplate,
   });
 
   // load templates when modal opens, and optionally open the import modal
