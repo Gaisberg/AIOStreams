@@ -20,7 +20,7 @@ import { PageControls } from '../shared/page-controls';
 import { useDisclosure } from '@/hooks/disclosure';
 import { Modal } from '../ui/modal';
 import { Switch } from '../ui/switch';
-import { TemplateExportModal } from '../shared/template-export-modal';
+import { TemplateExportModal } from '../shared/templates/export-modal';
 import { ConfigTemplatesModal } from '../shared/templates';
 import {
   Accordion,
