@@ -2309,6 +2309,22 @@ export class AIOStreams {
       finalStreams = streamsWithExternalDownloads;
     }
 
+    const byPresetType = new Map<string, ParsedStream[]>();
+    for (const s of finalStreams) {
+      const type = s.addon?.preset?.type ?? '';
+      if (type) {
+        const list = byPresetType.get(type) ?? [];
+        list.push(s);
+        byPresetType.set(type, list);
+      }
+    }
+    for (const [presetType, list] of byPresetType) {
+      const PresetClass = PresetManager.fromId(presetType);
+      if (typeof PresetClass.onStreamsReady === 'function') {
+        PresetClass.onStreamsReady(list);
+      }
+    }
+
     return { streams: finalStreams, errors };
   }
 
