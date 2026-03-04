@@ -242,11 +242,14 @@ export class Wrapper {
         id,
         options: this.addon.preset.options,
       }) || this.buildResourceUrl('stream', type, id);
-    const streamTtl = resolveTtl(
-      Env.STREAM_CACHE_TTL,
-      this.addon.preset.type,
-      this.manifestUrl
-    );
+    const streamTtl =
+      typeof this.preset.getStreamCacheTtl === 'function'
+        ? this.preset.getStreamCacheTtl()
+        : resolveTtl(
+            Env.STREAM_CACHE_TTL,
+            this.addon.preset.type,
+            this.manifestUrl
+          );
     const streams = await this.makeResourceRequest(
       'stream',
       { type, id },

@@ -123,6 +123,12 @@ export abstract class Preset {
   }
 
   /**
+   * Optional override for stream response cache TTL. Return -1 to disable caching for this preset.
+   * If undefined, Env.STREAM_CACHE_TTL (preset/hostname/wildcard) is used.
+   */
+  static getStreamCacheTtl?(): number;
+
+  /**
    * Optional hook called with this preset's streams after filtering and sorting (final order).
    * Only invoked for presets that contributed to the response. Fire-and-forget use is fine.
    */

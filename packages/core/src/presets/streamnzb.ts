@@ -52,6 +52,10 @@ export class StreamNZBPreset extends Preset {
     return StreamNZBStreamParser;
   }
 
+  static override getStreamCacheTtl(): number {
+    return -1;
+  }
+
   static override get METADATA() {
     const supportedResources = [constants.STREAM_RESOURCE];
     const options: Option[] = [
@@ -138,7 +142,10 @@ export class StreamNZBPreset extends Preset {
     const body = {
       streams: streams.map((s) => ({
         name: s.filename ?? s.originalName,
-        failoverId: (typeof s.extra?.failoverId === 'string' ? s.extra.failoverId : undefined) ?? s.id,
+        failoverId:
+          (typeof s.extra?.failoverId === 'string'
+            ? s.extra.failoverId
+            : undefined) ?? s.id,
       })),
     };
     logger.debug(
