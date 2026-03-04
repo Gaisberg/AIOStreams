@@ -29,6 +29,7 @@ export function ConfigTemplatesModal({
   openImportModal = false,
   deepLinkUrl,
   deepLinkTemplateId,
+  initialExpandedTemplateId,
 }: ConfigTemplatesModalProps) {
   const { setUserData, userData } = useUserData();
   const { status } = useStatus();
@@ -162,6 +163,7 @@ export function ConfigTemplatesModal({
         onOpenChange={(isOpen) => {
           if (!isOpen) wizard.handleCancel();
         }}
+        onOpenAutoFocus={(e) => e.preventDefault()}
         title="Templates"
         description="Browse and load pre-configured templates for your AIOStreams setup"
         contentClass="max-w-5xl w-full"
@@ -187,6 +189,13 @@ export function ConfigTemplatesModal({
               importer.confirmDeleteTemplate.open();
             }}
             totalTemplateCount={loader.templates.length}
+            initialExpandedTemplate={
+              initialExpandedTemplateId
+                ? (loader.templates.find(
+                    (t) => t.metadata.id === initialExpandedTemplateId
+                  ) ?? undefined)
+                : undefined
+            }
           />
         </div>
       </Modal>
@@ -199,8 +208,9 @@ export function ConfigTemplatesModal({
         }}
         title="Template Options"
         description="Customise this template to your needs"
+        contentClass="max-w-xl max-h-[120vh]"
       >
-        <div className="space-y-4 min-w-[480px]">
+        <div className="space-y-4">
           <TemplateInputsStep
             mode={mode}
             onModeChange={setMode}
@@ -223,8 +233,9 @@ export function ConfigTemplatesModal({
         }}
         title="Select Services"
         description="Choose which services you want to use with this template"
+        contentClass="max-w-xl"
       >
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4 overflow-hidden max-h-[calc(100svh-8rem)] md:max-h-[calc(100svh-10rem)]">
           {wizard.processedTemplate && (
             <TemplateServiceSelectionStep
               processedTemplate={wizard.processedTemplate}
@@ -247,8 +258,9 @@ export function ConfigTemplatesModal({
         }}
         title="Enter Credentials"
         description="Provide your API keys and credentials for the selected services and addons"
+        contentClass="max-w-xl"
       >
-        <div className="space-y-4">
+        <div className="flex flex-col gap-4 overflow-hidden max-h-[calc(100svh-8rem)] md:max-h-[calc(100svh-10rem)]">
           {wizard.processedTemplate && (
             <TemplateCredentialInputsStep
               processedTemplate={wizard.processedTemplate}

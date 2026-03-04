@@ -208,8 +208,8 @@ const DeduplicatorOptions = z.object({
 
 const OptionDefinition = z.looseObject({
   id: z.string().min(1),
-  name: z.string().min(1),
-  description: z.string().min(1),
+  name: z.string(),
+  description: z.string(),
   showInSimpleMode: z.boolean().optional(),
   advanced: z.boolean().optional(),
   emptyIsUndefined: z.boolean().optional(),
@@ -652,8 +652,18 @@ export const UserDataSchema = z.object({
   /** @deprecated Use precacheSelector instead */
   alwaysPrecache: z.boolean().optional(),
   /** @deprecated Use precacheSelector instead */
-  precacheCondition: z.string().optional(),
-  precacheSelector: z.string().optional(),
+  precacheCondition: z.string().min(1).max(Env.MAX_SEL_LENGTH).optional(),
+  precacheSelector: z.string().min(1).max(Env.MAX_SEL_LENGTH).optional(),
+  /** When false, all streams returned by precacheSelector are pinged; defaults to true (first stream only). */
+  precacheSingleStream: z.boolean().optional(),
+  preloadStreams: z
+    .object({
+      enabled: z.boolean().optional(),
+      selector: z.string().min(1).max(Env.MAX_SEL_LENGTH).optional(),
+      /** When false, all streams returned by selector are pinged; defaults to true (first stream only). */
+      singleStream: z.boolean().optional(),
+    })
+    .optional(),
   services: ServiceList.optional(),
   presets: PresetList,
   catalogModifications: z.array(CatalogModification).optional(),
@@ -663,6 +673,13 @@ export const UserDataSchema = z.object({
 
   autoRemoveDownloads: z.boolean().optional(),
   checkOwned: z.boolean().optional().default(true),
+  nzbFailover: z
+    .object({
+      enabled: z.boolean().optional(),
+      count: z.number().min(1).optional(),
+      position: z.enum(['beforeLimiting', 'beforeSEL', 'last']).optional(),
+    })
+    .optional(),
   serviceWrap: z
     .object({
       enabled: z.boolean().optional(),
@@ -864,9 +881,8 @@ export const ParsedFileSchema = z.object({
   folderSeasons: z.array(z.number()).optional(),
   folderEpisodes: z.array(z.number()).optional(),
   episodes: z.array(z.number()).optional(),
-  // seasonEpisode: z.array(z.string()).optional(),
-  edition: z.string().optional(),
-  remastered: z.boolean().optional(),
+  editions: z.array(z.string()).optional(),
+  regraded: z.boolean().optional(),
   repack: z.boolean().optional(),
   uncensored: z.boolean().optional(),
   unrated: z.boolean().optional(),
@@ -1203,6 +1219,7 @@ const PresetMetadataSchema = PresetMinimalMetadataSchema.extend({
 const StatusResponseSchema = z.object({
   version: z.string(),
   tag: z.string(),
+  channel: z.enum(['stable', 'nightly', 'dev']),
   commit: z.string(),
   buildTime: z.string(),
   commitTime: z.string(),
@@ -1267,6 +1284,8 @@ const StatusResponseSchema = z.object({
       maxStreamExpressions: z.number(),
       maxStreamExpressionsTotalCharacters: z.number(),
       maxAddons: z.number(),
+      maxNzbFailoverCount: z.number(),
+      maxBackgroundPings: z.number(),
     }),
   }),
 });

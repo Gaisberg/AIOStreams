@@ -7,9 +7,10 @@ import {
   Cache,
   DistributedLock,
   getTimeTakenSincePoint,
+  Time,
 } from '../utils/index.js';
 import { StremThruService } from './stremthru.js';
-import { selectFileInTorrentOrNZB } from './utils.js';
+import { selectFileInTorrentOrNZB, hashNzbUrl } from './utils.js';
 import {
   DebridServiceConfig,
   DebridDownload,
@@ -17,6 +18,7 @@ import {
   DebridError,
   TorrentDebridService,
   UsenetDebridService,
+  DebridFailureCache,
 } from './base.js';
 import { ParsedResult, parseTorrentTitle } from '@viren070/parse-torrent-title';
 
@@ -101,6 +103,8 @@ export class TorboxDebridService
   private readonly apiVersion = 'v1';
   private readonly torboxApi: TorboxApi;
   private readonly stremthru: StremThruService;
+  private readonly pollInterval: number;
+  private readonly maxWaitTime: number;
   private static playbackLinkCache = Cache.getInstance<string, string | null>(
     'tb:link'
   );
@@ -111,7 +115,12 @@ export class TorboxDebridService
   readonly serviceName: ServiceId = 'torbox';
   readonly capabilities = { torrents: true, usenet: true };
 
-  constructor(private readonly config: DebridServiceConfig) {
+  constructor(
+    private readonly config: DebridServiceConfig,
+    options?: { pollInterval?: number; maxWaitTime?: number }
+  ) {
+    this.pollInterval = options?.pollInterval ?? Time.Second * 10;
+    this.maxWaitTime = options?.maxWaitTime ?? Time.Minute * 2;
     this.torboxApi = new TorboxApi({
       token: config.token,
     });
@@ -312,6 +321,7 @@ export class TorboxDebridService
     try {
       nzbInfo = await this.torboxApi.usenet.getUsenetList(this.apiVersion, {
         id,
+        bypassCache: 'true',
       });
     } catch (error: any) {
       throw convertTorBoxError(error);
@@ -352,10 +362,28 @@ export class TorboxDebridService
       Array.isArray(nzbInfo.data.data) ? nzbInfo.data.data : [nzbInfo.data.data]
     ).map((usenetDownload) => {
       let status: DebridDownload['status'] = 'queued';
+      logger.debug(`computing usenet status`, {
+        downloadFinished: usenetDownload.downloadFinished,
+        downloadPresent: usenetDownload.downloadPresent,
+        downloadState: usenetDownload.downloadState,
+        progress: usenetDownload.progress,
+        eta: usenetDownload.eta,
+        active: usenetDownload.active,
+      });
       if (usenetDownload.downloadFinished && usenetDownload.downloadPresent) {
         status = 'downloaded';
-      } else if (usenetDownload.progress && usenetDownload.progress > 0) {
+      } else if (
+        usenetDownload.progress &&
+        usenetDownload.progress > 0 &&
+        usenetDownload.active
+      ) {
         status = 'downloading';
+      } else if (usenetDownload.downloadState?.toLowerCase().includes('fail')) {
+        status = 'failed';
+      } else if (
+        usenetDownload.downloadState?.toLowerCase().includes('invalid')
+      ) {
+        status = 'invalid';
       }
       return {
         id: usenetDownload.id ?? -1,
@@ -632,6 +660,14 @@ export class TorboxDebridService
       }
     }
 
+    if (nzb) {
+      await DebridFailureCache.check(
+        this.serviceName,
+        'usenet',
+        hashNzbUrl(nzb, false)
+      );
+    }
+
     let usenetDownload: DebridDownload;
 
     if (!nzb) {
@@ -689,9 +725,10 @@ export class TorboxDebridService
       if (!cacheAndPlay) {
         return undefined;
       }
-      // poll status when cacheAndPlay is true, max wait time is 110s
-      for (let i = 0; i < 10; i++) {
-        await new Promise((resolve) => setTimeout(resolve, 11000));
+      // poll status when cacheAndPlay is true
+      const maxPolls = Math.ceil(this.maxWaitTime / this.pollInterval);
+      for (let i = 0; i < maxPolls; i++) {
+        await new Promise((resolve) => setTimeout(resolve, this.pollInterval));
         const usenetList = await this._fetchNzbList(
           usenetDownload.id.toString()
         );
@@ -709,10 +746,43 @@ export class TorboxDebridService
             usenetDownload = usenetDownloadInList;
             break;
           }
+          if (
+            ['failed', 'invalid'].includes(usenetDownloadInList.status ?? '')
+          ) {
+            const err = new DebridError(
+              `Usenet download ${usenetDownloadInList.status}`,
+              {
+                statusCode: 400,
+                statusText: `Usenet download ${usenetDownloadInList.status}`,
+                code: 'UNKNOWN',
+                headers: {},
+                body: usenetDownloadInList,
+                type: 'api_error',
+              }
+            );
+            if (nzb)
+              DebridFailureCache.mark(
+                this.serviceName,
+                'usenet',
+                hashNzbUrl(nzb, false),
+                err
+              ).catch(() => {});
+            throw err;
+          }
         }
       }
       if (usenetDownload.status !== 'downloaded') {
-        return undefined;
+        throw new DebridError(
+          `Usenet download timed out waiting for completion (status: ${usenetDownload.status})`,
+          {
+            statusCode: 408,
+            statusText: 'Timeout',
+            code: 'UNKNOWN',
+            headers: {},
+            body: usenetDownload,
+            type: 'api_error',
+          }
+        );
       }
     }
 

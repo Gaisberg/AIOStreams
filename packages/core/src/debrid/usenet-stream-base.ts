@@ -8,8 +8,9 @@ import {
   DistributedLock,
   fromUrlSafeBase64,
   formatZodError,
+  Time,
 } from '../utils/index.js';
-import { isVideoFile, selectFileInTorrentOrNZB } from './utils.js';
+import { isVideoFile, selectFileInTorrentOrNZB, hashNzbUrl } from './utils.js';
 import {
   DebridServiceConfig,
   DebridDownload,
@@ -17,6 +18,7 @@ import {
   DebridError,
   DebridFile,
   UsenetDebridService,
+  DebridFailureCache,
 } from './base.js';
 import { ParsedResult, parseTorrentTitle } from '@viren070/parse-torrent-title';
 import z, { ZodError } from 'zod';
@@ -408,6 +410,10 @@ export interface UsenetStreamServiceConfig {
   apiUrl: string;
   apiKey: string;
   aiostreamsAuth?: string;
+  cacheAndPlayOptions?: {
+    pollingInterval?: number;
+    maxWaitTime?: number;
+  };
 }
 
 enum Category {
@@ -423,10 +429,9 @@ enum Category {
 export abstract class UsenetStreamService implements UsenetDebridService {
   protected readonly webdavClient: WebDAVClient;
   protected readonly api: SABnzbdApi;
-  protected static resolveCache = Cache.getInstance<
-    string,
-    string | { message: string; code: DebridError['code'] }
-  >('usenet-stream:link');
+  protected static resolveCache = Cache.getInstance<string, string>(
+    'usenet-stream:link'
+  );
   protected static libraryCache = Cache.getInstance<string, DebridDownload[]>(
     'usenet-stream:library'
   );
@@ -436,6 +441,8 @@ export abstract class UsenetStreamService implements UsenetDebridService {
 
   protected readonly auth: UsenetStreamServiceConfig;
   protected readonly serviceLogger: Logger;
+  protected readonly pollInterval: number;
+  protected readonly maxWaitTime: number;
   protected static readonly MIN_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
   protected static readonly MAX_DEPTH = 6;
 
@@ -455,21 +462,26 @@ export abstract class UsenetStreamService implements UsenetDebridService {
 
   constructor(
     protected readonly config: DebridServiceConfig,
-    auth: UsenetStreamServiceConfig,
+    serviceConfig: UsenetStreamServiceConfig,
     serviceName: ServiceId
   ) {
-    this.auth = auth;
+    this.auth = serviceConfig;
     this.serviceLogger = createLogger(serviceName);
-    this.webdavClient = createClient(auth.webdavUrl, {
-      username: auth.webdavUser,
-      password: auth.webdavPassword,
+    this.webdavClient = createClient(serviceConfig.webdavUrl, {
+      username: serviceConfig.webdavUser,
+      password: serviceConfig.webdavPassword,
     });
     this.api = new SABnzbdApi(
-      auth.apiUrl,
-      auth.apiKey,
+      serviceConfig.apiUrl,
+      serviceConfig.apiKey,
       serviceName,
       this.serviceLogger
     );
+
+    this.pollInterval =
+      serviceConfig.cacheAndPlayOptions?.pollingInterval ?? Time.Second * 2;
+    this.maxWaitTime =
+      serviceConfig.cacheAndPlayOptions?.maxWaitTime ?? Time.Second * 90;
   }
 
   protected async collectFiles(
@@ -788,6 +800,28 @@ export abstract class UsenetStreamService implements UsenetDebridService {
       };
     });
 
+    // Also include failed entries from history that don't have WebDAV folders
+    // so they can be detected and filtered out by processNZBs
+    if (historyData?.slots) {
+      const webdavNames = new Set(webdavFiles.map((file) => file.basename));
+      for (const slot of historyData.slots) {
+        if (
+          slot.status === 'failed' &&
+          slot.name &&
+          !webdavNames.has(slot.name)
+        ) {
+          nzbs.push({
+            id: nzbs.length,
+            status: 'failed',
+            name: slot.name,
+            size: slot.bytes ?? 0,
+            hash: slot.name,
+            files: [],
+          });
+        }
+      }
+    }
+
     this.serviceLogger.debug(`Listed NZBs from combined history and WebDAV`, {
       count: nzbs.length,
       time: getTimeTakenSincePoint(start),
@@ -896,20 +930,17 @@ export abstract class UsenetStreamService implements UsenetDebridService {
     const cachedResponse = await UsenetStreamService.resolveCache.get(cacheKey);
 
     if (cachedResponse) {
-      this.serviceLogger.debug(
-        `Using cached response for ${nzb}: ${typeof cachedResponse === 'string' ? 'stream URL' : 'error'}`
+      this.serviceLogger.debug(`Using cached stream URL for ${nzb}`);
+      return cachedResponse;
+    }
+
+    // Check global failure cache
+    if (nzb) {
+      await DebridFailureCache.check(
+        this.serviceName,
+        'usenet',
+        hashNzbUrl(nzb, false)
       );
-      if (typeof cachedResponse === 'string') {
-        return cachedResponse;
-      }
-      throw new DebridError(cachedResponse.message, {
-        statusCode: 400,
-        statusText: 'Bad Request',
-        code: cachedResponse.code,
-        headers: {},
-        body: null,
-        type: 'api_error',
-      });
     }
 
     this.serviceLogger.debug(`Resolving NZB`, {
@@ -972,31 +1003,40 @@ export abstract class UsenetStreamService implements UsenetDebridService {
 
     // Only add NZB if content doesn't already exist
     if (!alreadyExists) {
-      const addResult = await this.api.addUrl(
-        nzb,
-        category,
-        expectedFolderName
-      );
-      nzoId = addResult.nzoId;
+      try {
+        const addResult = await this.api.addUrl(
+          nzb,
+          category,
+          expectedFolderName
+        );
+        nzoId = addResult.nzoId;
+      } catch (addError) {
+        throw addError;
+      }
+    }
 
+    // If we added the NZB (not already existing), wait for it to complete
+    if (!alreadyExists && nzoId) {
       // Poll history until download is complete
       const pollStartTime = Date.now();
       let slot: ReturnType<typeof transformHistorySlot>;
       try {
-        slot = await this.api.waitForHistorySlot(nzoId, category);
+        slot = await this.api.waitForHistorySlot(
+          nzoId,
+          category,
+          this.maxWaitTime,
+          this.pollInterval
+        );
       } catch (error) {
         if (!(error instanceof DebridError)) {
           throw error;
         }
-        UsenetStreamService.resolveCache.set(
-          cacheKey,
-          {
-            message: error.message,
-            code: error.code,
-          },
-          Env.BUILTIN_DEBRID_RESOLVE_ERROR_CACHE_TTL,
-          true
-        );
+        DebridFailureCache.mark(
+          this.serviceName,
+          'usenet',
+          hashNzbUrl(nzb, false),
+          error
+        ).catch(() => {});
         throw error;
       }
 

@@ -6,7 +6,6 @@ import { applyMigrations, useUserData } from '@/context/userData';
 import {
   applyTemplateConditionals,
   resolveCredentialRefs,
-  evaluateTemplateCondition,
 } from '@/lib/templates/processors/conditionals';
 import {
   WizardStep,
@@ -24,8 +23,10 @@ import {
   addServiceInputs,
   filterUnavailablePresets,
   applyInputValue,
+  getVisibleOptions,
 } from '@/lib/templates/processors';
 import { UseValidationModal } from './validationModal';
+import { Mode } from '@/context/mode';
 
 export interface UseTemplateWizardParams {
   status: StatusResponse | null;
@@ -35,7 +36,7 @@ export interface UseTemplateWizardParams {
   templateValidations: Record<string, TemplateValidation>;
   setSelectedMenu: (menu: string) => void;
   onOpenChange: (open: boolean) => void;
-  mode: string;
+  mode: Mode;
 }
 
 export interface UseTemplateWizard {
@@ -131,6 +132,21 @@ export function useTemplateWizard({
     setSelectedServices(snapshot.selectedServices);
     setInputValues(snapshot.inputValues);
   };
+
+  /**
+   * Returns the IDs of services from userData that are already enabled and
+   * have credentials, filtered to only those present in serviceIds.
+   */
+  const getPreSelectedServices = (serviceIds: string[]): string[] =>
+    ((userData?.services ?? []) as any[])
+      .filter(
+        (s) =>
+          serviceIds.includes(s.id) &&
+          s.enabled &&
+          s.credentials &&
+          Object.values(s.credentials).some((v) => v)
+      )
+      .map((s) => s.id);
 
   /**
    * Migrates config, stamps in input values, filters services,
@@ -261,7 +277,7 @@ export function useTemplateWizard({
       );
       setCurrentStep('inputs');
     } else if (processed.showServiceSelection) {
-      setSelectedServices([]);
+      setSelectedServices(getPreSelectedServices(processed.services));
       setCurrentStep('selectService');
     } else {
       if (processed.inputs.length === 0) {
@@ -346,7 +362,7 @@ export function useTemplateWizard({
         setPendingTemplate(template);
         setTemplateInputOptions(options);
         setTemplateInputValues(initialValues);
-        setSelectedServices([]);
+        setSelectedServices(getPreSelectedServices(processed.services));
         setCurrentStep('selectService');
         return;
       }
@@ -456,20 +472,11 @@ export function useTemplateWizard({
   const handleTemplateInputsNext = () => {
     if (!pendingTemplate) return;
 
-    const visibleOptions = (
-      mode === 'noob'
-        ? templateInputOptions.filter(
-            (opt) => opt.advanced !== true && opt.showInSimpleMode !== false
-          )
-        : templateInputOptions
-    ).filter((opt) =>
-      (opt as any).__if
-        ? evaluateTemplateCondition(
-            (opt as any).__if,
-            templateInputValues,
-            selectedServices
-          )
-        : true
+    const visibleOptions = getVisibleOptions(
+      mode,
+      templateInputOptions,
+      templateInputValues,
+      selectedServices
     );
 
     const missingRequired = visibleOptions.filter(

@@ -5,7 +5,7 @@ import { Button } from '../../../ui/button';
 import { ModeSwitch } from '../../../ui/mode-switch/mode-switch';
 import TemplateOption from '../../template-option';
 import { Mode } from '@/context/mode';
-import { evaluateTemplateCondition } from '@/lib/templates/processors/conditionals';
+import { getVisibleOptions } from '@/lib/templates/processors';
 
 interface TemplateInputsStepProps {
   mode: Mode;
@@ -30,16 +30,11 @@ export function TemplateInputsStep({
   onBack,
   onNext,
 }: TemplateInputsStepProps) {
-  const visibleOptions = (
-    mode === 'noob'
-      ? options.filter(
-          (opt) => opt.advanced !== true && opt.showInSimpleMode !== false
-        )
-      : options
-  ).filter((opt) =>
-    (opt as any).__if
-      ? evaluateTemplateCondition((opt as any).__if, values, selectedServices)
-      : true
+  const visibleOptions = getVisibleOptions(
+    mode,
+    options,
+    values,
+    selectedServices
   );
 
   return (
@@ -51,7 +46,7 @@ export function TemplateInputsStep({
         className="w-full"
       />
 
-      <div className="space-y-3 max-h-[400px] overflow-y-auto pr-3">
+      <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-3">
         {visibleOptions.length === 0 ? (
           <div className="text-center py-6 text-gray-400 text-sm">
             No options available in simple mode. Switch to Advanced to see all

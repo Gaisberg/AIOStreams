@@ -29,6 +29,7 @@ const statusInfo = async (): Promise<StatusResponse> => {
   return {
     version: Env.VERSION,
     tag: Env.TAG,
+    channel: Env.CHANNEL as 'stable' | 'nightly' | 'dev',
     commit: Env.GIT_COMMIT,
     buildTime: Env.BUILD_TIME,
     commitTime: Env.BUILD_COMMIT_TIME,
@@ -107,6 +108,8 @@ const statusInfo = async (): Promise<StatusResponse> => {
         maxStreamExpressionsTotalCharacters:
           Env.MAX_STREAM_EXPRESSIONS_TOTAL_CHARACTERS,
         maxAddons: Env.MAX_ADDONS,
+        maxNzbFailoverCount: Env.MAX_NZB_FAILOVER_COUNT,
+        maxBackgroundPings: Env.MAX_BACKGROUND_PINGS,
       },
     },
   };
