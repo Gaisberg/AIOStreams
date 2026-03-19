@@ -442,11 +442,14 @@ class StreamParser {
     stream: Stream,
     currentParsedStream: ParsedStream
   ): string | undefined {
-    return stream.url
-      ? decodeURIComponent(stream.url).match(
-          /(?:(?<=btih:)|(?<=[-/[(;:&]))[a-fA-F0-9]{40}(?=$|[-\]\)/:;&?])/
-        )?.[0]
-      : undefined;
+    if (!stream.url) return undefined;
+    try {
+      return decodeURIComponent(stream.url).match(
+        /(?:(?<=btih:)|(?<=[-/[(;:&]))[a-fA-F0-9]{40}(?=$|[-\]\)/:;&?])/
+      )?.[0];
+    } catch {
+      return undefined;
+    }
   }
 
   protected getFileIdx(
@@ -467,7 +470,11 @@ class StreamParser {
     _: Stream,
     currentParsedStream: ParsedStream
   ): number | undefined {
-    if (currentParsedStream.size && currentParsedStream.duration) {
+    if (
+      currentParsedStream.size &&
+      currentParsedStream.duration &&
+      !currentParsedStream.bitrate
+    ) {
       const sizeBits = currentParsedStream.size * 8;
       const durationSeconds = currentParsedStream.duration / 1000;
       if (durationSeconds > 0) {
